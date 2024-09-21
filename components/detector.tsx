@@ -136,7 +136,7 @@ export function Detector() {
         <div className="grid gap-2">
           <h1 className="text-3xl font-bold">Animal Detector</h1>
           <p className="text-muted-foreground">
-            Upload an image of an animal and we'll detect and classify it.
+            Upload an image of an animal and we&apos;ll detect and classify it.
           </p>
         </div>
         <Card>

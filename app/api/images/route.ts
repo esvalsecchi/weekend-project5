@@ -1,76 +1,66 @@
-import { NextApiRequest, NextApiResponse } from 'next';
-import formidable from 'formidable';
-import fs from 'fs';
-import path from 'path';
+import OpenAI from "openai";
 
-// Deshabilitar el bodyParser para que formidable pueda manejar la solicitud multipart/form-data
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
+// Inicializamos OpenAI con el tipo correcto
+const openai = new OpenAI();
 
-// Función para convertir la imagen a Base64
-const convertImageToBase64 = (filePath: string): string => {
-  const imageBuffer = fs.readFileSync(filePath);
-  return imageBuffer.toString('base64');
-};
+export async function POST(req: Request): Promise<Response> {
+  try {
+    // Extraemos el cuerpo de la petición (esperamos un JSON con detectedAnimal)
+    const { detectedAnimal } = await req.json();
 
-// Función para hacer la solicitud al modelo de detección de objetos
-async function detectObjects(imageBase64: string) {
-  const API_URL = process.env.API_URL!;
-  const API_KEY = process.env.API_KEY!;
+    if (!detectedAnimal) {
+      return new Response("No animal detected in request body", { status: 400 });
+    }
 
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      inputs: imageBase64,
-    }),
-  });
-
-  const data = await response.json();
-  return data;
-}
-
-// API handler para manejar la solicitud POST
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method === 'POST') {
-    const form = formidable({ multiples: false, uploadDir: './public/uploads', keepExtensions: true });
-
-    form.parse(req, async (err, fields, files) => {
-      if (err) {
-        console.error('Error al subir la imagen:', err);
-        return res.status(500).json({ error: 'Error al procesar la imagen' });
-      }
-
-      // Obtener el archivo de imagen
-      const imageFile = files.image;
-
-      if (!imageFile || Array.isArray(imageFile)) {
-        return res.status(400).json({ error: 'No se recibió ninguna imagen o hay múltiples imágenes' });
-      }
-
-      // Convertir la imagen a Base64
-      const filePath = imageFile.filepath;
-      const imageBase64 = convertImageToBase64(filePath);
-
-      try {
-        // Llamar a la función de detección de objetos
-        const detections = await detectObjects(imageBase64);
-
-        // Enviar la respuesta con las detecciones
-        return res.status(200).json(detections);
-      } catch (error) {
-        console.error('Error en la detección:', error);
-        return res.status(500).json({ error: 'Error en la detección de objetos' });
-      }
+    // Creamos un asistente utilizando el modelo GPT-4 y le damos instrucciones
+    const assistant = await openai.beta.assistants.create({
+      name: "Zoologo",
+      instructions:
+        "You will receive an animal name, search its description on Wikipedia, and determine if the animal is dangerous or not.",
+      model: "gpt-4o"
     });
-  } else {
-    res.setHeader('Allow', ['POST']);
-    return res.status(405).end(`Método ${req.method} no permitido`);
+
+    // Creamos un nuevo hilo (thread)
+    const thread = await openai.beta.threads.create();
+
+    // Enviamos un mensaje con el nombre del animal detectado
+    await openai.beta.threads.messages.create(thread.id, {
+      role: "user",
+      content: `The animal is a ${detectedAnimal}`
+    });
+
+    // Ejecutamos el run y esperamos a que termine (sin stream)
+    let run = await openai.beta.threads.runs.createAndPoll(thread.id, {
+      assistant_id: assistant.id,
+    });
+
+    // Si la ejecución fue completada
+    if (run.status === 'completed') {
+      // Obtenemos los mensajes del thread
+      const messages = await openai.beta.threads.messages.list(run.thread_id);
+
+      // Invertimos el orden de los mensajes y extraemos el contenido del asistente
+      const fullResponse = messages.data
+        .reverse()
+        .find((message) => message.role === 'assistant')?.content[0].text.value || '';
+
+      // Determinamos si el animal es peligroso a partir del contenido
+      const isDangerous = /dangerous|aggressive/i.test(fullResponse);
+
+      // Retornamos la descripción y si el animal es peligroso
+      return new Response(
+        JSON.stringify({
+          description: fullResponse,
+          isDangerous,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    } else {
+      // Si el run no fue completado correctamente
+      return new Response(`Run status: ${run.status}`, { status: 500 });
+    }
+  } catch (error) {
+    console.error("Error handling animal detection:", error);
+    return new Response("Failed to process animal detection", { status: 500 });
   }
 }

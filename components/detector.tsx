@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import Image from "next/image";
+import LoadingModal from "./loadingModal";
 
 export function Detector() {
   const [image, setImage] = useState<File | null>(null);
@@ -13,6 +14,8 @@ export function Detector() {
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [animalDescription, setAnimalDescription] = useState<string | null>(null);
   const [isDangerous, setIsDangerous] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [animalDetected, setAnimalDetected] = useState(false); // Estado para habilitar el segundo botón
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -71,64 +74,81 @@ export function Detector() {
   };
 
   const handleAnimalDetection = async () => {
-  try {
-    if (!image) throw new Error("No image available");
+    setLoading(true);
+    try {
+      if (!image) throw new Error("No image available");
 
-    // Convertimos la imagen a base64
-    const imageBase64 = await convertToBase64(image);
+      const imageBase64 = await convertToBase64(image);
 
-    // Las etiquetas para clasificación
-    const candidateLabels = ["dog", "cat", "eagle", "horse", "cow", "shark", "lion", "wolf", "whale", "mouse"];
+      const candidateLabels = ["dog", "cat", "eagle", "horse", "cow", "shark", "lion", "wolf", "whale", "mouse"];
 
-    // Hacemos la petición a nuestra API interna en /api/cv
-    const response = await fetch("/api/cv", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        imageBase64,
-        candidateLabels,
-      }),
-    });
+      const response = await fetch("/api/cv", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          imageBase64,
+          candidateLabels,
+        }),
+      });
 
-    // Verificamos si la respuesta fue exitosa
-    if (!response.ok) {
-      throw new Error("Error detecting the animal");
+      if (!response.ok) {
+        throw new Error("Error detecting the animal");
+      }
+
+      const data = await response.json();
+      const detectedAnimal = (data?.[0]?.score) > 0.6 ? data?.[0]?.label?.toUpperCase() : "ANIMAL NOT DETECTED";
+      setAnimalName(detectedAnimal);
+      setAnimalIcon(getAnimalIcon(detectedAnimal));
+
+      // Habilitamos el botón de 'Generate Description' si el animal fue detectado correctamente
+      setAnimalDetected(detectedAnimal !== "ANIMAL NOT DETECTED");
+    } catch (error) {
+      console.error("Error detecting animal:", error);
+    } finally {
+      setLoading(false);
     }
+  };
 
-    // Obtenemos la respuesta de la API
-    const data = await response.json();
-    const detectedAnimal = data?.[0]?.label?.toUpperCase() ?? "UNKNOWN";
-    setAnimalName(detectedAnimal);
+  const handleAnimalDescription = async () => {
+    setLoading(true);
+    try {
+      if (!animalName) throw new Error("No animal detected");
 
-    // Actualizamos el ícono del animal
-    const icon = getAnimalIcon(detectedAnimal);
-    setAnimalIcon(icon);
+      const openaiResponse = await fetch("/api/images", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ detectedAnimal: animalName }),
+      });
 
-    // Llamamos a la función que verifica si el animal es peligroso (API OpenAI)
-    const openaiResponse = await fetch("/api/images", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ detectedAnimal }),
-    });
+      if (!openaiResponse.ok) {
+        throw new Error("Error checking if the animal is dangerous");
+      }
 
-    if (!openaiResponse.ok) {
-      throw new Error("Error checking if the animal is dangerous");
+      const { description, isDangerous } = await openaiResponse.json();
+
+      setAnimalDescription(description);
+      setIsDangerous(isDangerous);
+    } catch (error) {
+      console.error("Error getting animal description:", error);
+    } finally {
+      setLoading(false);
     }
+  };
 
-    const { description, isDangerous } = await openaiResponse.json();
-
-    // Actualizamos las variables description y isDangerous
-    setAnimalDescription(description);
-    setIsDangerous(isDangerous);
-
-  } catch (error) {
-    console.error("Error detecting animal or checking danger:", error);
-  }
-};
+  const handleReset = () => {
+    // Restablecer todos los estados a sus valores originales
+    setImage(null);
+    setAnimalName("");
+    setAnimalIcon(null);
+    setPreviewImage(null);
+    setAnimalDescription(null);
+    setIsDangerous(null);
+    setAnimalDetected(false);
+  };
 
   return (
     <div className="max-w-2xl mx-auto p-6 sm:p-8">
@@ -136,7 +156,7 @@ export function Detector() {
         <div className="grid gap-2">
           <h1 className="text-3xl font-bold">Animal Detector</h1>
           <p className="text-muted-foreground">
-            Upload an image of an animal and we&apos;ll detect and classify it.
+            Upload an image of an animal and we&apos;ll detect and classify it. The animals accepted are: dog, cat, eagle, horse, cow, shark, lion, wolf, whale, and mouse.
           </p>
         </div>
         <Card>
@@ -192,12 +212,26 @@ export function Detector() {
             )}
           </CardContent>
         </Card>
+        {loading && <LoadingModal />}
         <Button
           onClick={handleAnimalDetection}
           disabled={!image}
           className="justify-self-start"
         >
           Detect Animal
+        </Button>
+        <Button
+          onClick={handleAnimalDescription}
+          disabled={!animalDetected}
+          className="justify-self-start"
+        >
+          Generate Description
+        </Button>
+        <Button
+          onClick={handleReset}
+          className="justify-self-start bg-red-500 text-white hover:bg-red-600"
+        >
+          Reset
         </Button>
       </div>
     </div>

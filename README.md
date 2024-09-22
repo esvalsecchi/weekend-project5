@@ -52,3 +52,7 @@ This project uses an **OpenAI Agent** and Hugging Face to detect animals from an
    npm run dev
 
    <img width="560" alt="image" src="https://github.com/user-attachments/assets/ddba8b20-0270-4753-bc22-05cca1f88883">
+   <img width="579" alt="image" src="https://github.com/user-attachments/assets/8b9eb6db-8c5d-4e76-a3ac-40d881fb0512">
+   <img width="595" alt="image" src="https://github.com/user-attachments/assets/ae34556b-3af4-47d6-bf3e-fe7bc821eefc">
+
+
